@@ -1,0 +1,103 @@
+{{template "base" .}}
+
+{{define "title"}}Application Logs — Admin{{end}}
+
+{{define "content"}}
+<div class="max-w-6xl mx-auto">
+
+    <!-- Header -->
+    <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div>
+            <h2 class="text-xl font-semibold text-white">Application Logs</h2>
+            <p class="text-gray-500 text-sm mt-0.5">{{.Total}} matching {{if eq .Total 1}}entry{{else}}entries{{end}}</p>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <form method="GET" action="/admin/logs" class="flex flex-wrap gap-3 mb-6">
+        <select name="level" class="input-field w-auto min-w-[120px] text-sm"
+                onchange="this.form.submit()">
+            {{range .Levels}}
+            <option value="{{.}}" {{if eq . $.Level}}selected{{end}}>
+                {{if eq . ""}}All Levels{{else}}{{.}}{{end}}
+            </option>
+            {{end}}
+        </select>
+
+        <div class="flex gap-2 flex-1 min-w-[200px]">
+            <input type="text" name="search" value="{{.Search}}"
+                   class="input-field text-sm flex-1" placeholder="Search messages…">
+            <button type="submit" class="btn-primary text-sm px-4">Filter</button>
+            {{if or .Level .Search}}
+            <a href="/admin/logs" class="btn-ghost text-sm px-4">Clear</a>
+            {{end}}
+        </div>
+    </form>
+
+    <!-- Log table -->
+    <div class="rounded-xl border border-surface-600 bg-surface-800 overflow-hidden mb-6">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm font-mono">
+                <thead>
+                    <tr class="border-b border-surface-700 bg-surface-700/50">
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest w-28">Time</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest w-20">Level</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest">Message</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest hidden md:table-cell">Context</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-surface-700/60">
+                    {{range .Logs}}
+                    <tr class="hover:bg-surface-700/20 transition-colors">
+                        <td class="px-4 py-2.5 text-gray-600 text-xs whitespace-nowrap">
+                            {{.CreatedAt.Format "01-02 15:04:05"}}
+                        </td>
+                        <td class="px-4 py-2.5">
+                            <span class="level-badge {{levelClass .Level}}">{{.Level}}</span>
+                        </td>
+                        <td class="px-4 py-2.5 text-gray-300 text-xs max-w-sm truncate">
+                            {{.Message}}
+                        </td>
+                        <td class="px-4 py-2.5 text-gray-500 text-xs max-w-xs truncate hidden md:table-cell">
+                            {{.Context}}
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr>
+                        <td colspan="4" class="px-4 py-12 text-center text-gray-600 text-sm">
+                            No log entries match your filter.
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="flex flex-wrap gap-3 mb-4">
+        <span class="text-xs text-gray-600 font-mono">Levels:</span>
+        <span class="level-badge level-error">ERROR</span>
+        <span class="level-badge level-warn">WARN</span>
+        <span class="level-badge level-info">INFO</span>
+        <span class="level-badge level-debug">DEBUG</span>
+        <span class="text-xs text-gray-600 font-mono ml-2">· Debug requires <code class="bg-surface-700 px-1 rounded">-debug</code> flag or <code class="bg-surface-700 px-1 rounded">DEBUG=1</code></span>
+    </div>
+
+    <!-- Pagination -->
+    {{if gt .TotalPages 1}}
+    <div class="flex items-center justify-between">
+        <p class="text-xs text-gray-500 font-mono">Page {{.Page}} of {{.TotalPages}}</p>
+        <div class="flex gap-2">
+            {{if gt .Page 1}}
+            <a href="?page={{dec .Page}}&level={{.Level}}&search={{.Search}}" class="btn-ghost text-xs px-3 py-1.5">← Prev</a>
+            {{end}}
+            {{if lt .Page .TotalPages}}
+            <a href="?page={{inc .Page}}&level={{.Level}}&search={{.Search}}" class="btn-ghost text-xs px-3 py-1.5">Next →</a>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+
+</div>
+{{end}}

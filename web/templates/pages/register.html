@@ -1,0 +1,62 @@
+{{template "base" .}}
+
+{{define "title"}}Create Account — GoApp{{end}}
+
+{{define "content"}}
+<div class="flex items-center justify-center min-h-[70vh]">
+    <div class="w-full max-w-sm">
+
+        <div class="text-center mb-8">
+            <div class="w-12 h-12 rounded-2xl bg-accent/20 border border-accent/30 flex items-center justify-center mx-auto mb-4">
+                {{navIcon "users"}}
+            </div>
+            <h2 class="text-2xl font-semibold text-white">Create account</h2>
+            <p class="text-gray-500 text-sm mt-1">Get started with GoApp</p>
+        </div>
+
+        <div class="card p-6">
+            <form method="POST" action="/register" novalidate>
+
+                <div class="mb-4">
+                    <label class="field-label">Username</label>
+                    <input type="text" name="username" value="{{.Username}}"
+                           class="input-field" placeholder="my_username"
+                           autocomplete="username" autofocus required
+                           minlength="3" maxlength="32">
+                    <p class="text-xs text-gray-600 mt-1">3–32 characters, letters/numbers/underscores only</p>
+                </div>
+
+                <div class="mb-4">
+                    <label class="field-label">Email</label>
+                    <input type="email" name="email" value="{{.Email}}"
+                           class="input-field" placeholder="you@example.com"
+                           autocomplete="email" required>
+                </div>
+
+                <div class="mb-4">
+                    <label class="field-label">Password</label>
+                    <input type="password" name="password"
+                           class="input-field" placeholder="Min. 8 characters"
+                           autocomplete="new-password" required minlength="8">
+                </div>
+
+                <div class="mb-6">
+                    <label class="field-label">Confirm Password</label>
+                    <input type="password" name="confirm"
+                           class="input-field" placeholder="Repeat password"
+                           autocomplete="new-password" required>
+                </div>
+
+                <button type="submit" class="btn-primary w-full justify-center">
+                    Create Account
+                </button>
+            </form>
+        </div>
+
+        <p class="text-center text-sm text-gray-500 mt-4">
+            Already have an account?
+            <a href="/login" class="text-accent hover:text-accent-dim transition-colors">Sign in</a>
+        </p>
+    </div>
+</div>
+{{end}}

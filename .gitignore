@@ -1,0 +1,10 @@
+data/envs
+data/*.db
+data/*.db-shm
+data/*db-wal
+data/gowebmail.conf
+data/*.txt
+testrun/
+*.code-workspace
+test*/**
+test*

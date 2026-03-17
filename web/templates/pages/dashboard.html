@@ -1,0 +1,126 @@
+{{template "base" .}}
+
+{{define "title"}}Dashboard — GoApp{{end}}
+
+{{define "content"}}
+<div class="max-w-5xl mx-auto">
+
+    <!-- Welcome header -->
+    <div class="mb-8">
+        <h2 class="text-2xl font-semibold text-white">
+            Hello, <span class="text-accent">{{.User.Username}}</span> 👋
+        </h2>
+        <p class="text-gray-500 text-sm mt-1">
+            Logged in as <span class="font-mono text-gray-400">{{.User.Role}}</span>
+            {{if .User.LastLogin}}
+            · Last login {{.User.LastLogin.Format "2006-01-02 15:04 UTC"}}
+            {{end}}
+        </p>
+    </div>
+
+    <!-- Quick stats -->
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+        <div class="card flex items-start gap-4">
+            <div class="w-10 h-10 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
+                {{navIcon "users"}}
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 font-mono uppercase tracking-widest mb-0.5">Role</p>
+                <p class="text-lg font-semibold text-white capitalize">{{.User.Role}}</p>
+            </div>
+        </div>
+        <div class="card flex items-start gap-4">
+            <div class="w-10 h-10 rounded-lg bg-success/10 border border-success/20 flex items-center justify-center shrink-0">
+                <svg class="w-4 h-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 font-mono uppercase tracking-widest mb-0.5">Status</p>
+                <p class="text-lg font-semibold text-success">Active</p>
+            </div>
+        </div>
+        <div class="card flex items-start gap-4">
+            <div class="w-10 h-10 rounded-lg bg-surface-600 border border-surface-500 flex items-center justify-center shrink-0">
+                <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                </svg>
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 font-mono uppercase tracking-widest mb-0.5">Member Since</p>
+                <p class="text-sm font-medium text-gray-200">{{.User.CreatedAt.Format "Jan 2, 2006"}}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick links -->
+    <div class="mb-8">
+        <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-widest font-mono mb-4">Quick Actions</h3>
+        <div class="grid sm:grid-cols-2 gap-3">
+            <a href="/profile" class="card flex items-center gap-4 hover:border-accent/30 transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-surface-600 flex items-center justify-center group-hover:bg-accent/10 transition-colors">
+                    {{navIcon "settings"}}
+                </div>
+                <div>
+                    <p class="font-medium text-gray-200">Profile Settings</p>
+                    <p class="text-xs text-gray-500">Change your password</p>
+                </div>
+                <svg class="w-4 h-4 text-gray-600 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                </svg>
+            </a>
+            <a href="/about" class="card flex items-center gap-4 hover:border-accent/30 transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-surface-600 flex items-center justify-center group-hover:bg-accent/10 transition-colors">
+                    {{navIcon "info"}}
+                </div>
+                <div>
+                    <p class="font-medium text-gray-200">Documentation</p>
+                    <p class="text-xs text-gray-500">How this app is structured</p>
+                </div>
+                <svg class="w-4 h-4 text-gray-600 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                </svg>
+            </a>
+            {{if .User.IsAdmin}}
+            <a href="/admin/users" class="card flex items-center gap-4 hover:border-accent/30 transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-surface-600 flex items-center justify-center group-hover:bg-accent/10 transition-colors">
+                    {{navIcon "users"}}
+                </div>
+                <div>
+                    <p class="font-medium text-gray-200">Manage Users</p>
+                    <p class="text-xs text-gray-500">View and manage all accounts</p>
+                </div>
+                <svg class="w-4 h-4 text-gray-600 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                </svg>
+            </a>
+            <a href="/admin/logs" class="card flex items-center gap-4 hover:border-accent/30 transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-surface-600 flex items-center justify-center group-hover:bg-accent/10 transition-colors">
+                    {{navIcon "activity"}}
+                </div>
+                <div>
+                    <p class="font-medium text-gray-200">Application Logs</p>
+                    <p class="text-xs text-gray-500">View errors, warnings & events</p>
+                </div>
+                <svg class="w-4 h-4 text-gray-600 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                </svg>
+            </a>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Getting started section for non-admins -->
+    {{if not .User.IsAdmin}}
+    <div class="rounded-xl border border-surface-600 bg-surface-800/50 p-6">
+        <h3 class="font-semibold text-white mb-2">Getting Started</h3>
+        <p class="text-gray-400 text-sm leading-relaxed">
+            You're logged in. This is your dashboard. Explore the navigation on the left to get around.
+            Need help? Check the <a href="/about" class="text-accent hover:underline">About</a> page or
+            <a href="/contact" class="text-accent hover:underline">Contact us</a>.
+        </p>
+    </div>
+    {{end}}
+
+</div>
+{{end}}

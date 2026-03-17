@@ -1,0 +1,95 @@
+{{template "base" .}}
+
+{{define "title"}}About — GoApp{{end}}
+
+{{define "content"}}
+<div class="max-w-3xl mx-auto">
+
+    <div class="mb-12">
+        <h2 class="text-3xl font-light tracking-tight mb-3">
+            How it <span class="text-accent font-semibold">Works</span>
+        </h2>
+        <p class="text-gray-400 leading-relaxed">
+            This app demonstrates a Flask-style template inheritance pattern using Go's
+            <code class="font-mono text-accent/80 text-sm bg-surface-700 px-1.5 py-0.5 rounded">html/template</code> package,
+            paired with full user management, leveled logging, and a modular page system.
+        </p>
+    </div>
+
+    <!-- Architecture steps -->
+    <div class="space-y-3 mb-12">
+        <div class="card flex gap-5 items-start">
+            <div class="flex-shrink-0 w-9 h-9 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center font-mono text-accent text-sm font-semibold">1</div>
+            <div>
+                <h3 class="font-semibold text-white mb-1">One base layout</h3>
+                <p class="text-gray-400 text-sm leading-relaxed">
+                    <code class="font-mono text-xs bg-surface-700 px-1 py-0.5 rounded">base.html</code> defines the full HTML shell:
+                    sidebar nav, header, footer, flash messages, and named blocks for title, content, and scripts.
+                </p>
+            </div>
+        </div>
+        <div class="card flex gap-5 items-start">
+            <div class="flex-shrink-0 w-9 h-9 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center font-mono text-accent text-sm font-semibold">2</div>
+            <div>
+                <h3 class="font-semibold text-white mb-1">Page templates override blocks</h3>
+                <p class="text-gray-400 text-sm leading-relaxed">
+                    Each page starts with <code class="font-mono text-xs bg-surface-700 px-1 py-0.5 rounded">{{"{{"}}template "base" .{{"}}"}}</code>
+                    then redefines only the blocks it needs.
+                </p>
+            </div>
+        </div>
+        <div class="card flex gap-5 items-start">
+            <div class="flex-shrink-0 w-9 h-9 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center font-mono text-accent text-sm font-semibold">3</div>
+            <div>
+                <h3 class="font-semibold text-white mb-1">Renderer pairs them at startup</h3>
+                <p class="text-gray-400 text-sm leading-relaxed">
+                    The Renderer pre-parses base + each page into its own
+                    <code class="font-mono text-xs bg-surface-700 px-1 py-0.5 rounded">*template.Template</code>.
+                    Executing "base" always picks up the correct page blocks — no blank pages.
+                </p>
+            </div>
+        </div>
+        <div class="card flex gap-5 items-start">
+            <div class="flex-shrink-0 w-9 h-9 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center font-mono text-accent text-sm font-semibold">4</div>
+            <div>
+                <h3 class="font-semibold text-white mb-1">Handlers are independent modules</h3>
+                <p class="text-gray-400 text-sm leading-relaxed">
+                    Every page is a separate Go file implementing <code class="font-mono text-xs bg-surface-700 px-1 py-0.5 rounded">http.Handler</code>.
+                    Register it in <code class="font-mono text-xs bg-surface-700 px-1 py-0.5 rounded">router.go</code> and you're done.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Project structure -->
+    <div class="rounded-xl border border-surface-600 bg-surface-800 overflow-hidden">
+        <div class="px-5 py-3 border-b border-surface-700 bg-surface-700/50 flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-accent/40"></span>
+            <span class="font-mono text-xs text-gray-400">Project Structure</span>
+        </div>
+        <pre class="p-5 font-mono text-sm text-gray-300 leading-7 overflow-x-auto">
+<span class="text-accent">goapp/</span>
+├── <span class="text-gray-500">go.mod</span>
+├── <span class="text-accent/70">cmd/server/</span>          <span class="text-gray-600">// entrypoint + flags</span>
+│   └── main.go
+├── <span class="text-accent/70">internal/</span>
+│   ├── <span class="text-accent/70">auth/</span>             <span class="text-gray-600">// PBKDF2, CSRF, rate limiter</span>
+│   ├── <span class="text-accent/70">db/</span>               <span class="text-gray-600">// SQLite, users, sessions, logs</span>
+│   ├── <span class="text-accent/70">handlers/</span>         <span class="text-gray-600">// one file per page + renderer</span>
+│   │   ├── renderer.go
+│   │   ├── auth.go       <span class="text-gray-600">// login, register, logout, profile</span>
+│   │   ├── pages.go      <span class="text-gray-600">// home, about, contact, dashboard</span>
+│   │   └── admin.go      <span class="text-gray-600">// user management, log viewer</span>
+│   ├── <span class="text-accent/70">logger/</span>           <span class="text-gray-600">// leveled structured logger</span>
+│   ├── <span class="text-accent/70">middleware/</span>       <span class="text-gray-600">// auth, security headers, recovery</span>
+│   └── <span class="text-accent/70">router/</span>           <span class="text-gray-600">// route registration</span>
+└── <span class="text-accent/70">web/</span>
+    ├── <span class="text-accent/70">templates/</span>
+    │   ├── layouts/base.html
+    │   └── pages/         <span class="text-gray-600">// one .html per page</span>
+    └── <span class="text-accent/70">static/</span>css · js
+        </pre>
+    </div>
+
+</div>
+{{end}}
