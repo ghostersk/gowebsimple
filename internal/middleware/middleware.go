@@ -3,34 +3,35 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
+	"goapp/internal/config"
 	"goapp/internal/db"
 	"goapp/internal/logger"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Context key type
+// Context keys
 // ─────────────────────────────────────────────────────────────────────────────
 
 type ctxKey int
 
 const (
-	ctxUser    ctxKey = iota // *db.User
-	ctxSession ctxKey = iota // session token string
+	ctxUser    ctxKey = iota
+	ctxSession ctxKey = iota
 )
 
-// UserFromCtx retrieves the authenticated user from the request context.
-// Returns nil if the request is unauthenticated.
 func UserFromCtx(r *http.Request) *db.User {
 	u, _ := r.Context().Value(ctxUser).(*db.User)
 	return u
 }
 
-// SessionTokenFromCtx retrieves the session token from the request context.
 func SessionTokenFromCtx(r *http.Request) string {
 	s, _ := r.Context().Value(ctxSession).(string)
 	return s
@@ -66,7 +67,6 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 // Security headers
 // ─────────────────────────────────────────────────────────────────────────────
 
-// SecureHeaders adds recommended security headers to every response.
 func SecureHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -76,7 +76,7 @@ func SecureHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
-				"script-src 'self' https://cdn.tailwindcss.com 'unsafe-inline'; "+
+				"script-src 'self' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com 'unsafe-inline'; "+
 				"style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "+
 				"font-src 'self' https://fonts.gstatic.com; "+
 				"img-src 'self' data:; "+
@@ -87,11 +87,37 @@ func SecureHeaders(next http.Handler) http.Handler {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Domain guard
+// ─────────────────────────────────────────────────────────────────────────────
+
+// DomainGuard rejects requests whose Host header doesn't match cfg.WebDomain.
+// When WebDomain is "*" all hosts are accepted (default).
+func DomainGuard(cfg *config.Config) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if cfg.WebDomain != "" && cfg.WebDomain != "*" {
+				host := r.Host
+				// Strip port if present
+				if h, _, err := net.SplitHostPort(host); err == nil {
+					host = h
+				}
+				if !strings.EqualFold(host, cfg.WebDomain) {
+					http.Error(w, "not found", http.StatusNotFound)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Request logger
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Logger logs each request with method, path, status, and duration.
-func Logger(appLogger *logger.Logger) func(http.Handler) http.Handler {
+func Logger(appLogger *logger.Logger, cfg *config.Config) func(http.Handler) http.Handler {
+	trustedProxies := parseCIDRs(cfg.ReverseProxies)
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -99,14 +125,17 @@ func Logger(appLogger *logger.Logger) func(http.Handler) http.Handler {
 			next.ServeHTTP(rw, r)
 			duration := time.Since(start)
 
-			// Static assets — debug only
-			if len(r.URL.Path) > 8 && r.URL.Path[:8] == "/static/" {
-				appLogger.Debug("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur", duration)
+			// Resolve real client IP
+			clientIP := realIP(r, trustedProxies)
+
+			if strings.HasPrefix(r.URL.Path, "/static/") {
+				appLogger.Debug("http", "method", r.Method, "path", r.URL.Path,
+					"status", rw.status, "ip", clientIP, "dur", duration)
 				return
 			}
-
-			appLogger.Debug("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur", duration)
-			log.Printf("%s %s %d %s", r.Method, r.URL.Path, rw.status, duration)
+			appLogger.Debug("http", "method", r.Method, "path", r.URL.Path,
+				"status", rw.status, "ip", clientIP, "dur", duration)
+			log.Printf("%s %s %d %s %s", r.Method, r.URL.Path, rw.status, clientIP, duration)
 		})
 	}
 }
@@ -115,15 +144,13 @@ func Logger(appLogger *logger.Logger) func(http.Handler) http.Handler {
 // Panic recovery
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Recovery catches panics and returns a 500.
 func Recovery(appLogger *logger.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if err := recover(); err != nil {
-					stack := string(debug.Stack())
 					appLogger.Error("panic recovered", "err", err, "path", r.URL.Path)
-					log.Printf("PANIC: %v\n%s", err, stack)
+					log.Printf("PANIC: %v\n%s", err, debug.Stack())
 					http.Error(w, "internal server error", http.StatusInternalServerError)
 				}
 			}()
@@ -139,7 +166,6 @@ func Recovery(appLogger *logger.Logger) func(http.Handler) http.Handler {
 const sessionCookie = "session"
 
 // Auth injects the authenticated user into the request context (if any).
-// It does NOT redirect — use RequireAuth or RequireAdmin for that.
 func Auth(database *db.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -148,23 +174,18 @@ func Auth(database *db.DB) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-
 			sess, err := database.SessionByToken(cookie.Value)
 			if err != nil {
-				// Invalid/expired session — clear the cookie
 				clearSessionCookie(w)
 				next.ServeHTTP(w, r)
 				return
 			}
-
 			user, err := database.UserByID(sess.UserID)
 			if err != nil || !user.Active {
 				clearSessionCookie(w)
 				next.ServeHTTP(w, r)
 				return
 			}
-
-			// Attach user and token to context
 			ctx := context.WithValue(r.Context(), ctxUser, user)
 			ctx = context.WithValue(ctx, ctxSession, sess.Token)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -183,7 +204,7 @@ func RequireAuth(next http.Handler) http.Handler {
 	})
 }
 
-// RequireAdmin redirects non-admin users to /dashboard.
+// RequireAdmin redirects non-admin users to a 403 error page.
 func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u := UserFromCtx(r)
@@ -192,7 +213,7 @@ func RequireAdmin(next http.Handler) http.Handler {
 			return
 		}
 		if !u.IsAdmin() {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			http.Redirect(w, r, "/error/403", http.StatusSeeOther)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -203,7 +224,6 @@ func RequireAdmin(next http.Handler) http.Handler {
 // Cookie helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-// SetSessionCookie writes the session cookie to the response.
 func SetSessionCookie(w http.ResponseWriter, token string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
@@ -211,30 +231,80 @@ func SetSessionCookie(w http.ResponseWriter, token string, expires time.Time) {
 		Path:     "/",
 		Expires:  expires,
 		HttpOnly: true,
-		Secure:   false, // set to true behind HTTPS in production
+		Secure:   false, // enable when behind TLS in production
 		SameSite: http.SameSiteLaxMode,
 	})
 }
 
-// clearSessionCookie expires the session cookie.
 func clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookie,
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
+		Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
 	})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chain helper
+// Chain
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Chain applies middleware in order (first listed = outermost).
 func Chain(h http.Handler, mw ...func(http.Handler) http.Handler) http.Handler {
 	for i := len(mw) - 1; i >= 0; i-- {
 		h = mw[i](h)
 	}
 	return h
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Real-IP extraction
+// ─────────────────────────────────────────────────────────────────────────────
+
+func realIP(r *http.Request, trustedProxies []*net.IPNet) string {
+	remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+	ip := net.ParseIP(remoteIP)
+
+	// Only trust X-Forwarded-For if request came from a trusted proxy
+	if ip != nil && isInCIDRs(ip, trustedProxies) {
+		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			// X-Forwarded-For may be a comma-separated list; take the first
+			parts := strings.Split(fwd, ",")
+			if first := strings.TrimSpace(parts[0]); first != "" {
+				return first
+			}
+		}
+		if real := r.Header.Get("X-Real-IP"); real != "" {
+			return real
+		}
+	}
+	return remoteIP
+}
+
+func parseCIDRs(addrs []string) []*net.IPNet {
+	var nets []*net.IPNet
+	for _, a := range addrs {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		// Try as plain IP first → add /32 or /128
+		if ip := net.ParseIP(a); ip != nil {
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			a = fmt.Sprintf("%s/%d", a, bits)
+		}
+		if _, ipnet, err := net.ParseCIDR(a); err == nil {
+			nets = append(nets, ipnet)
+		}
+	}
+	return nets
+}
+
+func isInCIDRs(ip net.IP, nets []*net.IPNet) bool {
+	for _, n := range nets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+

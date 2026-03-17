@@ -1,0 +1,53 @@
+{{/* layout: base_public.html */}}
+{{template "base" .}}
+{{define "title"}}Welcome to GoApp{{end}}
+
+{{define "content"}}
+<!-- Hero section -->
+<section class="max-w-6xl mx-auto px-6 pt-24 pb-20 text-center">
+    <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 text-accent text-xs font-mono mb-8">
+        <span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse"></span>
+        v1.0.0 · production ready
+    </div>
+    <h1 class="text-5xl md:text-7xl font-light leading-none tracking-tight mb-6">
+        Your App Name<br>
+        <span class="text-accent font-semibold">Landing Page</span>
+    </h1>
+    <p class="text-gray-400 text-xl max-w-2xl mx-auto leading-relaxed mb-10">
+        This is an example of the <code class="font-mono text-accent/80 text-base bg-surface-700 px-2 py-0.5 rounded">pub_</code> layout —
+        a clean public-facing page with top navigation and no sidebar.
+        Perfect for landing pages, marketing, and documentation.
+    </p>
+    <div class="flex gap-4 justify-center flex-wrap">
+        {{if .User}}
+        <a href="/dashboard" class="btn-primary text-base px-6 py-3">Go to Dashboard</a>
+        {{else}}
+        {{if .AllowRegistration}}
+        <a href="/register" class="btn-primary text-base px-6 py-3">Get Started Free</a>
+        {{end}}
+        <a href="/login" class="{{if .AllowRegistration}}btn-ghost{{else}}btn-primary{{end}} text-base px-6 py-3">Sign In</a>
+        {{end}}
+    </div>
+</section>
+
+<!-- Feature section -->
+<section class="max-w-6xl mx-auto px-6 pb-24">
+    <div class="grid md:grid-cols-3 gap-6">
+        <div class="card p-6 text-center">
+            <div class="text-3xl mb-4">⚡</div>
+            <h3 class="font-semibold text-white mb-2">Fast & Lightweight</h3>
+            <p class="text-gray-400 text-sm leading-relaxed">Pure Go stdlib, zero JS frameworks, minimal overhead.</p>
+        </div>
+        <div class="card p-6 text-center">
+            <div class="text-3xl mb-4">🔐</div>
+            <h3 class="font-semibold text-white mb-2">Secure by Default</h3>
+            <p class="text-gray-400 text-sm leading-relaxed">MFA, PBKDF2 passwords, CSRF protection, security headers.</p>
+        </div>
+        <div class="card p-6 text-center">
+            <div class="text-3xl mb-4">🧩</div>
+            <h3 class="font-semibold text-white mb-2">Modular & Extensible</h3>
+            <p class="text-gray-400 text-sm leading-relaxed">Add pages in minutes. Three layouts out of the box.</p>
+        </div>
+    </div>
+</section>
+{{end}}

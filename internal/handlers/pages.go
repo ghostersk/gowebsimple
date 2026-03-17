@@ -1,23 +1,19 @@
 package handlers
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+
+	"goapp/internal/mailer"
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dashboard handler — the main authenticated landing page
+// Dashboard
 // ─────────────────────────────────────────────────────────────────────────────
 
-type DashboardData struct {
-	PageData
-}
+type DashboardHandler struct{ tmpl *Renderer }
 
-// DashboardHandler serves GET /dashboard.
-type DashboardHandler struct {
-	tmpl *Renderer
-}
-
-func NewDashboardHandler(r *Renderer) *DashboardHandler {
-	return &DashboardHandler{tmpl: r}
-}
+func NewDashboardHandler(r *Renderer) *DashboardHandler { return &DashboardHandler{tmpl: r} }
 
 func (h *DashboardHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/dashboard" {
@@ -28,22 +24,17 @@ func (h *DashboardHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	data := DashboardData{PageData: NewPageData(r, "Dashboard")}
+	data := struct{ PageData }{PageData: NewPageData(r, "Dashboard")}
 	h.tmpl.Render(w, "dashboard", data)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Home handler — the public landing page
+// Home
 // ─────────────────────────────────────────────────────────────────────────────
 
-// HomeHandler serves GET /.
-type HomeHandler struct {
-	tmpl *Renderer
-}
+type HomeHandler struct{ tmpl *Renderer }
 
-func NewHomeHandler(r *Renderer) *HomeHandler {
-	return &HomeHandler{tmpl: r}
-}
+func NewHomeHandler(r *Renderer) *HomeHandler { return &HomeHandler{tmpl: r} }
 
 func (h *HomeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
@@ -59,17 +50,12 @@ func (h *HomeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// About handler
+// About
 // ─────────────────────────────────────────────────────────────────────────────
 
-// AboutHandler serves GET /about.
-type AboutHandler struct {
-	tmpl *Renderer
-}
+type AboutHandler struct{ tmpl *Renderer }
 
-func NewAboutHandler(r *Renderer) *AboutHandler {
-	return &AboutHandler{tmpl: r}
-}
+func NewAboutHandler(r *Renderer) *AboutHandler { return &AboutHandler{tmpl: r} }
 
 func (h *AboutHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -81,7 +67,7 @@ func (h *AboutHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Contact handler
+// Contact — demonstrates mailer integration
 // ─────────────────────────────────────────────────────────────────────────────
 
 type ContactForm struct {
@@ -92,16 +78,20 @@ type ContactForm struct {
 
 type ContactData struct {
 	PageData
-	Form    ContactForm
+	Form ContactForm
 }
 
 // ContactHandler serves GET/POST /contact.
+// It accepts a *mailer.Mailer and sends a notification email on form submit.
+// When m.Enabled() is false (email disabled in config) the form still works,
+// it just skips the email send silently.
 type ContactHandler struct {
-	tmpl *Renderer
+	tmpl   *Renderer
+	mailer *mailer.Mailer
 }
 
-func NewContactHandler(r *Renderer) *ContactHandler {
-	return &ContactHandler{tmpl: r}
+func NewContactHandler(r *Renderer, m *mailer.Mailer) *ContactHandler {
+	return &ContactHandler{tmpl: r, mailer: m}
 }
 
 func (h *ContactHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +100,7 @@ func (h *ContactHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sent := r.URL.Query().Get("sent") == "1"
 		pd := NewPageData(r, "Contact")
 		if sent {
-			pd.FlashMsg = "Message sent successfully!"
+			pd.FlashMsg = "Message sent — we'll be in touch soon."
 		}
 		h.tmpl.Render(w, "contact", ContactData{PageData: pd})
 	case http.MethodPost:
@@ -123,74 +113,85 @@ func (h *ContactHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *ContactHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := r.ParseForm(); err != nil {
-		h.tmpl.Render(w, "contact", ContactData{
-			PageData: newPageDataWithErr(r, "Contact", "Could not parse form."),
-		})
+		h.renderErr(w, r, ContactForm{}, "Could not parse form.")
 		return
 	}
 
 	form := ContactForm{
-		Name:    trimSafe(r.FormValue("name")),
-		Email:   trimSafe(r.FormValue("email")),
-		Message: trimSafe(r.FormValue("message")),
+		Name:    strings.TrimSpace(r.FormValue("name")),
+		Email:   strings.TrimSpace(r.FormValue("email")),
+		Message: strings.TrimSpace(r.FormValue("message")),
 	}
 
 	switch {
 	case form.Name == "":
-		h.renderContactErr(w, r, form, "Name is required.")
+		h.renderErr(w, r, form, "Name is required.")
 		return
-	case form.Email == "" || !containsChar(form.Email, '@'):
-		h.renderContactErr(w, r, form, "A valid email address is required.")
+	case !strings.Contains(form.Email, "@"):
+		h.renderErr(w, r, form, "A valid email address is required.")
 		return
 	case form.Message == "":
-		h.renderContactErr(w, r, form, "Message cannot be empty.")
+		h.renderErr(w, r, form, "Message cannot be empty.")
 		return
 	case len(form.Message) > 2000:
-		h.renderContactErr(w, r, form, "Message must be 2 000 characters or fewer.")
+		h.renderErr(w, r, form, "Message must be 2 000 characters or fewer.")
 		return
 	}
 
+	// ── Send notification email ───────────────────────────────────────────
+	// To use this in your own handlers, follow this same pattern:
+	//   1. Inject *mailer.Mailer into your handler struct
+	//   2. Call h.mailer.Send(mailer.Message{...})
+	//   3. Log errors but don't abort the request — email failure should
+	//      not break the user experience
+	// ─────────────────────────────────────────────────────────────────────
+	if h.mailer.Enabled() {
+		body := "New contact form submission\n\n" +
+			"Name:    " + form.Name + "\n" +
+			"Email:   " + form.Email + "\n" +
+			"Message: " + form.Message
+		// In production replace "admin@localhost" with a real address,
+		// or read it from config.
+		_ = h.mailer.Send(mailer.Message{
+			To:      []string{"admin@localhost"},
+			Subject: "Contact form: " + form.Name,
+			Body:    body,
+		})
+		// Note: we intentionally ignore the error here so a mail
+		// server misconfiguration doesn't break form submission.
+		// Log it instead if you need visibility:
+		//   if err := h.mailer.Send(...); err != nil {
+		//       h.log.Warn("contact: email failed", "err", err)
+		//   }
+	}
+
+	// PRG pattern — redirect to prevent duplicate submissions on refresh
 	http.Redirect(w, r, "/contact?sent=1", http.StatusSeeOther)
 }
 
-func (h *ContactHandler) renderContactErr(w http.ResponseWriter, r *http.Request, form ContactForm, errMsg string) {
-	pd := newPageDataWithErr(r, "Contact", errMsg)
+func (h *ContactHandler) renderErr(w http.ResponseWriter, r *http.Request, form ContactForm, errMsg string) {
+	pd := NewPageData(r, "Contact")
+	pd.FlashErr = errMsg
 	h.tmpl.Render(w, "contact", ContactData{PageData: pd, Form: form})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared helpers
+// Public landing page (uses base_public.html layout via layout comment)
 // ─────────────────────────────────────────────────────────────────────────────
 
-func newPageDataWithErr(r *http.Request, title, errMsg string) PageData {
-	pd := NewPageData(r, title)
-	pd.FlashErr = errMsg
-	return pd
+type PubLandingHandler struct{ tmpl *Renderer }
+
+func NewPubLandingHandler(r *Renderer) *PubLandingHandler { return &PubLandingHandler{tmpl: r} }
+
+func (h *PubLandingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	data := struct{ PageData }{PageData: NewPageData(r, "Welcome")}
+	h.tmpl.Render(w, "landing", data)
 }
 
-func trimSafe(s string) string {
-	result := make([]byte, 0, len(s))
-	for _, b := range []byte(s) {
-		if b != 0 {
-			result = append(result, b)
-		}
-	}
-	// Trim spaces
-	start, end := 0, len(result)
-	for start < end && (result[start] == ' ' || result[start] == '\t' || result[start] == '\n' || result[start] == '\r') {
-		start++
-	}
-	for end > start && (result[end-1] == ' ' || result[end-1] == '\t' || result[end-1] == '\n' || result[end-1] == '\r') {
-		end--
-	}
-	return string(result[start:end])
-}
-
-func containsChar(s string, c rune) bool {
-	for _, r := range s {
-		if r == c {
-			return true
-		}
-	}
-	return false
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────

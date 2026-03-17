@@ -1,12 +1,10 @@
 {{template "base" .}}
-
 {{define "title"}}Sign In — GoApp{{end}}
 
 {{define "content"}}
 <div class="flex items-center justify-center min-h-[70vh]">
     <div class="w-full max-w-sm">
 
-        <!-- Header -->
         <div class="text-center mb-8">
             <div class="w-12 h-12 rounded-2xl bg-accent/20 border border-accent/30 flex items-center justify-center mx-auto mb-4">
                 {{navIcon "key"}}
@@ -15,7 +13,6 @@
             <p class="text-gray-500 text-sm mt-1">Sign in to your account</p>
         </div>
 
-        <!-- Form -->
         <div class="card p-6">
             <form method="POST" action="/login" novalidate>
                 <input type="hidden" name="next" value="{{.Next}}">
@@ -40,11 +37,12 @@
             </form>
         </div>
 
-        <!-- Register link -->
+        {{if .AllowRegistration}}
         <p class="text-center text-sm text-gray-500 mt-4">
             Don't have an account?
             <a href="/register" class="text-accent hover:text-accent-dim transition-colors">Create one</a>
         </p>
+        {{end}}
     </div>
 </div>
 {{end}}

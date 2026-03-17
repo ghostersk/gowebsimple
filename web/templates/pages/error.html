@@ -1,0 +1,58 @@
+{{template "base" .}}
+
+{{define "title"}}{{.StatusCode}} {{.StatusText}} — GoApp{{end}}
+
+{{define "content"}}
+<div class="flex items-center justify-center min-h-[70vh]">
+    <div class="text-center max-w-lg px-4">
+
+        <!-- Big status code -->
+        <div class="font-mono text-8xl md:text-9xl font-bold text-surface-700 leading-none select-none mb-2"
+             aria-hidden="true">{{.StatusCode}}</div>
+
+        <!-- Icon by status -->
+        <div class="flex justify-center mb-6">
+            {{if eq .StatusCode 404}}
+            <div class="w-16 h-16 rounded-2xl bg-surface-700 border border-surface-600 flex items-center justify-center">
+                <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+            </div>
+            {{else if eq .StatusCode 403}}
+            <div class="w-16 h-16 rounded-2xl bg-danger/10 border border-danger/20 flex items-center justify-center">
+                <svg class="w-8 h-8 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                </svg>
+            </div>
+            {{else}}
+            <div class="w-16 h-16 rounded-2xl bg-warning/10 border border-warning/20 flex items-center justify-center">
+                <svg class="w-8 h-8 text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                </svg>
+            </div>
+            {{end}}
+        </div>
+
+        <h1 class="text-2xl font-semibold text-white mb-3">{{.StatusText}}</h1>
+        <p class="text-gray-400 text-sm leading-relaxed mb-8">{{.Detail}}</p>
+
+        <!-- Actions -->
+        <div class="flex items-center justify-center gap-3 flex-wrap">
+            <a href="/" class="btn-primary">← Go Home</a>
+            {{if eq .StatusCode 403}}
+            {{if not .User}}
+            <a href="/login" class="btn-ghost">Sign In</a>
+            {{end}}
+            {{end}}
+            <button onclick="history.back()" class="btn-ghost">Go Back</button>
+        </div>
+
+        <!-- Debug hint for 500 -->
+        {{if eq .StatusCode 500}}
+        <p class="mt-8 text-xs text-gray-600 font-mono">
+            Check the <a href="/admin/logs" class="text-accent hover:underline">application logs</a> for details.
+        </p>
+        {{end}}
+    </div>
+</div>
+{{end}}

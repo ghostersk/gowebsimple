@@ -23,10 +23,13 @@ type LogEntry struct {
 }
 
 // InsertLog writes a new log entry to the database.
+// created_at is supplied explicitly because the portable schema has no
+// database-side DEFAULT (SQLite, MySQL, and PostgreSQL handle defaults
+// differently; supplying it from Go is the safest cross-DB approach).
 func (d *DB) InsertLog(level, message, context string) error {
 	_, err := d.Exec(
-		`INSERT INTO app_logs (level, message, context) VALUES (?,?,?)`,
-		level, message, context,
+		`INSERT INTO app_logs (level, message, context, created_at) VALUES (?,?,?,?)`,
+		level, message, context, TimeStr(time.Now()),
 	)
 	return err
 }
@@ -98,10 +101,13 @@ func (d *DB) CountLogs(level, search string) (int, error) {
 }
 
 // PurgeLogs deletes all logs older than days.
+// The cutoff timestamp is computed in Go so the SQL is portable across
+// SQLite, MySQL, and PostgreSQL (no database-side date arithmetic needed).
 func (d *DB) PurgeLogs(days int) (int64, error) {
+	cutoff := TimeStr(time.Now().AddDate(0, 0, -days))
 	res, err := d.Exec(
-		`DELETE FROM app_logs WHERE created_at < datetime('now', ?)`,
-		fmt.Sprintf("-%d days", days),
+		`DELETE FROM app_logs WHERE created_at < ?`,
+		cutoff,
 	)
 	if err != nil {
 		return 0, err

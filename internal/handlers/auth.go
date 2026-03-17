@@ -20,16 +20,17 @@ type LoginData struct {
 	Next     string
 }
 
-// LoginHandler serves GET/POST /login.
 type LoginHandler struct {
 	tmpl    *Renderer
 	db      *db.DB
 	log     *logger.Logger
 	limiter *auth.RateLimiter
+	pending *PendingMFAStore
 }
 
-func NewLoginHandler(r *Renderer, database *db.DB, l *logger.Logger, limiter *auth.RateLimiter) *LoginHandler {
-	return &LoginHandler{tmpl: r, db: database, log: l, limiter: limiter}
+func NewLoginHandler(r *Renderer, database *db.DB, l *logger.Logger,
+	limiter *auth.RateLimiter, pending *PendingMFAStore) *LoginHandler {
+	return &LoginHandler{tmpl: r, db: database, log: l, limiter: limiter, pending: pending}
 }
 
 func (h *LoginHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -100,18 +101,25 @@ func (h *LoginHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 
 	h.limiter.Reset(r)
 
+	// If MFA is enabled, redirect to challenge step
+	if user.HasMFA() {
+		token := h.pending.Add(user.ID, next)
+		h.log.Info("login: mfa challenge", "username", user.Username)
+		http.Redirect(w, r, "/login/mfa?t="+token, http.StatusSeeOther)
+		return
+	}
+
+	// No MFA — create session directly
 	sess, err := h.db.CreateSession(user.ID)
 	if err != nil {
 		h.log.Error("create session failed", "err", err)
 		h.showForm(w, r, username, "An error occurred. Please try again.")
 		return
 	}
-
 	_ = h.db.UpdateLastLogin(user.ID)
 	h.log.Info("login success", "username", user.Username, "ip", r.RemoteAddr, "role", user.Role)
 
 	middleware.SetSessionCookie(w, sess.Token, sess.ExpiresAt)
-
 	if next == "" || !strings.HasPrefix(next, "/") {
 		next = "/dashboard"
 	}
@@ -128,7 +136,6 @@ type RegisterData struct {
 	Email    string
 }
 
-// RegisterHandler serves GET/POST /register.
 type RegisterHandler struct {
 	tmpl *Renderer
 	db   *db.DB
@@ -226,7 +233,6 @@ func isAlphanumeric(s string) bool {
 // Logout handler
 // ─────────────────────────────────────────────────────────────────────────────
 
-// LogoutHandler serves POST /logout.
 type LogoutHandler struct {
 	db  *db.DB
 	log *logger.Logger
@@ -241,17 +247,14 @@ func (h *LogoutHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
 	user := middleware.UserFromCtx(r)
 	tok := middleware.SessionTokenFromCtx(r)
-
 	if tok != "" {
 		_ = h.db.DeleteSession(tok)
 	}
 	if user != nil {
 		h.log.Info("logout", "username", user.Username)
 	}
-
 	http.SetCookie(w, &http.Cookie{
 		Name: "session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
 	})
@@ -266,7 +269,6 @@ type ProfileData struct {
 	PageData
 }
 
-// ProfileHandler serves GET/POST /profile.
 type ProfileHandler struct {
 	tmpl *Renderer
 	db   *db.DB
@@ -301,7 +303,6 @@ func (h *ProfileHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	newPwd := r.FormValue("new_password")
 	confirm := r.FormValue("confirm_password")
 
-	// Re-fetch user to get current hash (ctx user may be stale)
 	fresh, err := h.db.UserByID(user.ID)
 	if err != nil {
 		http.Redirect(w, r, "/profile?err=Could+not+load+account.", http.StatusSeeOther)
@@ -332,7 +333,6 @@ func (h *ProfileHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.log.Info("password changed", "username", user.Username)
-	// Invalidate all sessions and force re-login
 	_ = h.db.DeleteUserSessions(user.ID)
 	http.SetCookie(w, &http.Cookie{Name: "session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
 	http.Redirect(w, r, "/login?msg=Password+changed.+Please+sign+in+again.", http.StatusSeeOther)

@@ -1,110 +1,187 @@
-// Package db provides the database connection and schema management.
+// Package db provides a database/sql wrapper with schema migration.
 //
-// SQLite driver: modernc.org/sqlite (pure Go, no CGO required).
-// This is the ONLY external dependency in this project, permitted by the
-// project spec for database support.
+// Driver selection:
+//
+//   The DatabaseURL scheme determines which driver is used:
+//     file:... or sqlite:... → modernc.org/sqlite  (pure Go, default)
+//     mysql://...            → github.com/go-sql-driver/mysql  (add import)
+//     postgres://... or
+//     postgresql://...       → github.com/lib/pq               (add import)
+//
+//   To switch databases:
+//     1. Change DatabaseURL in config.json
+//     2. Add the driver import in cmd/server/drivers.go
+//     3. Run go mod tidy
+//
+//   All SQL uses ANSI-compatible syntax. SQLite-only functions (datetime('now'))
+//   are confined to this file and clearly marked.
 package db
 
 import (
 	"database/sql"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
+	"strings"
 	"time"
 
-	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGO)
+	_ "modernc.org/sqlite" // default SQLite driver — pure Go, no CGO
+	// To add MySQL:    _ "github.com/go-sql-driver/mysql"
+	// To add Postgres: _ "github.com/lib/pq"
 )
 
 // DB wraps sql.DB with app-level helpers.
 type DB struct {
 	*sql.DB
+	driver string // "sqlite" | "mysql" | "postgres"
 }
 
-// Open opens (or creates) the SQLite database at the given path
-// and runs all schema migrations.
-func Open(dataDir string) (*DB, error) {
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		return nil, fmt.Errorf("db: create data dir: %w", err)
+// Open connects to the database identified by databaseURL and runs migrations.
+//
+// URL examples:
+//
+//	file:./data/app.db?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)
+//	mysql://user:pass@tcp(localhost:3306)/mydb?parseTime=true
+//	postgres://user:pass@localhost:5432/mydb?sslmode=disable
+func Open(databaseURL string) (*DB, error) {
+	if databaseURL == "" {
+		return nil, fmt.Errorf("db: DatabaseURL is empty — check config.json")
 	}
 
-	dbPath := filepath.Join(dataDir, "app.db")
-	dsn := "file:" + dbPath + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
-
-	sqlDB, err := sql.Open("sqlite", dsn)
+	driverName, dsn, err := parseDSN(databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("db: open: %w", err)
+		return nil, err
 	}
 
-	// WAL mode works best with a single writer connection.
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
-	sqlDB.SetConnMaxLifetime(time.Hour)
+	sqlDB, err := sql.Open(driverName, dsn)
+	if err != nil {
+		return nil, fmt.Errorf("db: open (%s): %w", driverName, err)
+	}
+
+	// Connection pool tuning — SQLite needs 1 writer; others can use more.
+	if driverName == "sqlite" {
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetMaxIdleConns(1)
+	} else {
+		sqlDB.SetMaxOpenConns(25)
+		sqlDB.SetMaxIdleConns(5)
+		sqlDB.SetConnMaxLifetime(5 * time.Minute)
+	}
 
 	if err := sqlDB.Ping(); err != nil {
-		return nil, fmt.Errorf("db: ping: %w", err)
+		return nil, fmt.Errorf("db: ping (%s): %w", driverName, err)
 	}
 
-	d := &DB{sqlDB}
+	d := &DB{DB: sqlDB, driver: driverName}
 	if err := d.migrate(); err != nil {
 		return nil, fmt.Errorf("db: migrate: %w", err)
 	}
 
-	log.Printf("db: opened %s", dbPath)
+	log.Printf("db: connected (%s)", driverName)
 	return d, nil
 }
 
+// Driver returns the database driver name ("sqlite", "mysql", "postgres").
+func (d *DB) Driver() string { return d.driver }
+
+// IsSQLite reports whether the underlying database is SQLite.
+func (d *DB) IsSQLite() bool { return d.driver == "sqlite" }
+
+// parseDSN infers the driver name and returns a driver-appropriate DSN.
+func parseDSN(url string) (driver, dsn string, err error) {
+	switch {
+	case strings.HasPrefix(url, "file:") || strings.HasPrefix(url, "sqlite:"):
+		// Normalise: strip "sqlite://" prefix if present
+		dsn = strings.TrimPrefix(url, "sqlite://")
+		return "sqlite", dsn, nil
+
+	case strings.HasPrefix(url, "mysql://"):
+		// Convert mysql://user:pass@tcp(host:port)/db → user:pass@tcp(host:port)/db
+		dsn = strings.TrimPrefix(url, "mysql://")
+		return "mysql", dsn, nil
+
+	case strings.HasPrefix(url, "postgres://"),
+		strings.HasPrefix(url, "postgresql://"):
+		// lib/pq accepts the full postgres:// URL natively
+		return "postgres", url, nil
+
+	default:
+		return "", "", fmt.Errorf("db: unsupported database URL scheme: %q (expected file:, mysql://, or postgres://)", url)
+	}
+}
+
+// migrate applies the schema DDL idempotently.
+//
+// Portability note: The schema uses INTEGER PRIMARY KEY which works for:
+//   - SQLite:     rowid alias, implicit auto-increment
+//   - MySQL:      add AUTO_INCREMENT after INTEGER for id columns
+//   - PostgreSQL: use SERIAL or BIGSERIAL instead of INTEGER for id columns
+//
+// When switching databases, update the id column definitions accordingly.
+// All other columns use portable SQL types (VARCHAR, TEXT, SMALLINT, etc.)
 func (d *DB) migrate() error {
-	schema := `
-CREATE TABLE IF NOT EXISTS users (
-	id          INTEGER PRIMARY KEY AUTOINCREMENT,
-	username    TEXT    NOT NULL UNIQUE COLLATE NOCASE,
-	email       TEXT    NOT NULL UNIQUE COLLATE NOCASE,
-	password    TEXT    NOT NULL,
-	role        TEXT    NOT NULL DEFAULT 'user',
-	active      INTEGER NOT NULL DEFAULT 1,
-	created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-	last_login  TEXT
-);
+	stmts := []string{
+		// Users
+		`CREATE TABLE IF NOT EXISTS users (
+			id          INTEGER      NOT NULL,
+			username    VARCHAR(64)  NOT NULL,
+			email       VARCHAR(255) NOT NULL,
+			password    TEXT         NOT NULL,
+			role        VARCHAR(16)  NOT NULL DEFAULT 'user',
+			active      SMALLINT     NOT NULL DEFAULT 1,
+			mfa_secret  TEXT         NOT NULL DEFAULT '',
+			mfa_enabled SMALLINT     NOT NULL DEFAULT 0,
+			created_at  TEXT         NOT NULL,
+			last_login  TEXT,
+			PRIMARY KEY (id)
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email    ON users(email)`,
 
-CREATE TABLE IF NOT EXISTS sessions (
-	token       TEXT    PRIMARY KEY,
-	user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-	expires_at  TEXT    NOT NULL,
-	created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_exp  ON sessions(expires_at);
+		// Sessions
+		`CREATE TABLE IF NOT EXISTS sessions (
+			token       VARCHAR(128) NOT NULL,
+			user_id     INTEGER      NOT NULL,
+			expires_at  TEXT         NOT NULL,
+			created_at  TEXT         NOT NULL,
+			PRIMARY KEY (token)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_exp  ON sessions(expires_at)`,
 
-CREATE TABLE IF NOT EXISTS app_logs (
-	id          INTEGER PRIMARY KEY AUTOINCREMENT,
-	level       TEXT    NOT NULL,
-	message     TEXT    NOT NULL,
-	context     TEXT    NOT NULL DEFAULT '',
-	created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_logs_level   ON app_logs(level);
-CREATE INDEX IF NOT EXISTS idx_logs_created ON app_logs(created_at);
-`
-	if _, err := d.Exec(schema); err != nil {
-		return err
+		// App logs
+		`CREATE TABLE IF NOT EXISTS app_logs (
+			id          INTEGER NOT NULL,
+			level       VARCHAR(8) NOT NULL,
+			message     TEXT NOT NULL,
+			context     TEXT NOT NULL DEFAULT '',
+			created_at  TEXT NOT NULL,
+			PRIMARY KEY (id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_level   ON app_logs(level)`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_created ON app_logs(created_at)`,
 	}
 
-	// Cleanup old sessions on startup.
-	_, _ = d.Exec(`DELETE FROM sessions WHERE expires_at < datetime('now')`)
+	for _, stmt := range stmts {
+		if _, err := d.Exec(stmt); err != nil {
+			return fmt.Errorf("migrate stmt failed: %w\nSQL: %s", err, stmt)
+		}
+	}
 
-	// Prune logs older than 90 days.
-	_, _ = d.Exec(`DELETE FROM app_logs WHERE created_at < datetime('now', '-90 days')`)
+	// Cleanup stale data on startup.
+	_, _ = d.Exec(`DELETE FROM sessions WHERE expires_at < ?`, TimeStr(time.Now()))
+	_, _ = d.Exec(`DELETE FROM app_logs WHERE created_at < ?`,
+		TimeStr(time.Now().AddDate(0, 0, -90)))
 
 	return nil
 }
 
-// NullString converts a string to sql.NullString.
-func NullString(s string) sql.NullString {
-	return sql.NullString{String: s, Valid: s != ""}
-}
-
-// TimeStr formats time.Time as SQLite datetime string.
+// TimeStr formats a time.Time as an ISO-8601 string for DB storage.
+// All databases accept this format via their TEXT/VARCHAR columns.
 func TimeStr(t time.Time) string {
 	return t.UTC().Format("2006-01-02 15:04:05")
+}
+
+// NullString converts an empty string to sql.NullString.
+func NullString(s string) sql.NullString {
+	return sql.NullString{String: s, Valid: s != ""}
 }

@@ -152,6 +152,12 @@ func (h *AdminUserActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 			_ = h.db.DeleteUserSessions(userID)
 		}
 		h.log.Warn("admin: password reset", "actor", actor.Username, "target", target.Username)
+	case "disable_mfa":
+		err = h.db.DisableMFA(userID)
+		if err == nil {
+			_ = h.db.DeleteUserSessions(userID)
+		}
+		h.log.Warn("admin: mfa disabled", "actor", actor.Username, "target", target.Username)
 	default:
 		http.Redirect(w, r, "/admin/users?err=Unknown+action.", http.StatusSeeOther)
 		return

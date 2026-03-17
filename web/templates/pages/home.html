@@ -1,5 +1,4 @@
 {{template "base" .}}
-
 {{define "title"}}GoApp — Modular Go Web Framework{{end}}
 
 {{define "content"}}
@@ -16,15 +15,17 @@
             <span class="text-accent font-semibold">Web Framework</span>
         </h1>
         <p class="text-gray-400 text-lg max-w-xl leading-relaxed mb-8">
-            A secure, Flask-inspired template system built entirely on Go's standard library.
-            Zero third-party dependencies. Full user management. Ready to extend.
+            A secure, Flask-inspired template system built on Go's standard library.
+            Full user management, MFA, structured logging, and three layouts out of the box.
         </p>
         <div class="flex gap-3 flex-wrap">
             {{if .User}}
             <a href="/dashboard" class="btn-primary">Go to Dashboard</a>
             {{else}}
+            {{if .AllowRegistration}}
             <a href="/register" class="btn-primary">Get Started</a>
-            <a href="/login"    class="btn-ghost">Sign In</a>
+            {{end}}
+            <a href="/login" class="btn-{{if .AllowRegistration}}ghost{{else}}primary{{end}}">Sign In</a>
             {{end}}
         </div>
     </div>
@@ -34,32 +35,32 @@
         <div class="card">
             <div class="text-2xl mb-3">⚡</div>
             <h3 class="font-semibold text-white mb-2">Zero Dependencies</h3>
-            <p class="text-gray-400 text-sm leading-relaxed">Built on Go's standard library only. SQLite for storage. No supply-chain risk.</p>
+            <p class="text-gray-400 text-sm leading-relaxed">Built on Go's standard library. SQLite default, MySQL/PostgreSQL ready via config.</p>
         </div>
         <div class="card">
             <div class="text-2xl mb-3">🔐</div>
             <h3 class="font-semibold text-white mb-2">Secure by Default</h3>
-            <p class="text-gray-400 text-sm leading-relaxed">PBKDF2 password hashing, session tokens, rate limiting, CSRF protection, security headers.</p>
+            <p class="text-gray-400 text-sm leading-relaxed">PBKDF2 passwords, TOTP MFA, session tokens, rate limiting, CSRF, security headers.</p>
         </div>
         <div class="card">
             <div class="text-2xl mb-3">👥</div>
             <h3 class="font-semibold text-white mb-2">User Management</h3>
-            <p class="text-gray-400 text-sm leading-relaxed">Full admin portal to create, disable, promote, and manage users with role-based access.</p>
+            <p class="text-gray-400 text-sm leading-relaxed">Full admin portal. Create, disable, promote users. MFA management per user.</p>
         </div>
         <div class="card">
             <div class="text-2xl mb-3">📋</div>
             <h3 class="font-semibold text-white mb-2">Structured Logging</h3>
-            <p class="text-gray-400 text-sm leading-relaxed">Leveled logging (ERROR/WARN/INFO/DEBUG) stored in DB and visible to admins in the UI.</p>
+            <p class="text-gray-400 text-sm leading-relaxed">ERROR/WARN/INFO/DEBUG levels, stored in DB, searchable by admins in the UI.</p>
         </div>
         <div class="card">
             <div class="text-2xl mb-3">🧩</div>
             <h3 class="font-semibold text-white mb-2">Modular Pages</h3>
-            <p class="text-gray-400 text-sm leading-relaxed">Add a page with one handler file and one template. See README-modular.md for the pattern.</p>
+            <p class="text-gray-400 text-sm leading-relaxed">Three layouts: sidebar, public top-nav, bare. Add a page in one handler + one template.</p>
         </div>
         <div class="card">
-            <div class="text-2xl mb-3">📱</div>
-            <h3 class="font-semibold text-white mb-2">Mobile Responsive</h3>
-            <p class="text-gray-400 text-sm leading-relaxed">Left sidebar navigation collapses to a drawer on mobile. Works on all screen sizes.</p>
+            <div class="text-2xl mb-3">⚙️</div>
+            <h3 class="font-semibold text-white mb-2">Config File</h3>
+            <p class="text-gray-400 text-sm leading-relaxed">Auto-generated <code class="font-mono text-xs">config.json</code> with secrets, domain guard, proxy support, registration toggle.</p>
         </div>
     </div>
 
