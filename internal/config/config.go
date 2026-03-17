@@ -61,6 +61,9 @@ type Config struct {
 	// accounts via the admin panel.
 	AllowRegistration bool `json:"allow_registration"`
 
+	// ── Security (IP blocking, GeoIP, bans) ─────────────────────────────────
+	Security SecurityConfig `json:"security"`
+
 	// ── Email ─────────────────────────────────────────────────────────────────
 	Email EmailConfig `json:"email"`
 
@@ -71,6 +74,55 @@ type Config struct {
 
 	// LogRetentionDays: log entries older than this are auto-pruned. Default 90.
 	LogRetentionDays int `json:"log_retention_days"`
+}
+
+// SecurityConfig holds IP blocking, GeoIP, and auto-ban settings.
+type SecurityConfig struct {
+	// Enabled: master switch. When false all security checks are skipped.
+	Enabled bool `json:"enabled"`
+
+	// ── Auto-ban (brute-force protection) ────────────────────────────────────
+	// AutoBanEnabled: automatically ban IPs that exceed the login failure threshold.
+	AutoBanEnabled bool `json:"auto_ban_enabled"`
+
+	// AutoBanThreshold: number of failures within AutoBanWindowMinutes before ban.
+	AutoBanThreshold int `json:"auto_ban_threshold"`
+
+	// AutoBanWindowMinutes: sliding window (minutes) in which failures are counted.
+	AutoBanWindowMinutes int `json:"auto_ban_window_minutes"`
+
+	// AutoBanDurationHours: how long the auto-ban lasts. 0 = permanent.
+	AutoBanDurationHours int `json:"auto_ban_duration_hours"`
+
+	// ── GeoIP country filtering ───────────────────────────────────────────────
+	// GeoIPEnabled: when true, country rules in the admin UI are evaluated.
+	GeoIPEnabled bool `json:"geoip_enabled"`
+
+	// GeoIPDBPath: full file path to the GeoLite2-Country.mmdb binary database.
+	//
+	// Leave empty (default) — the app uses data/GeoLite2-Country.mmdb automatically.
+	//
+	// Custom path examples:
+	//   "/opt/geoip/GeoLite2-Country.mmdb"     (absolute)
+	//   "data/GeoLite2-Country.mmdb"            (relative to working directory)
+	//
+	// How to get the database file:
+	//   Option A — Auto-download (recommended):
+	//     Set maxmind_license_key below. The app downloads and updates it weekly.
+	//   Option B — Manual download:
+	//     1. Register free at https://www.maxmind.com/en/geolite2/signup
+	//     2. Download GeoLite2-Country.tar.gz from Account → Downloads
+	//     3. Extract GeoLite2-Country.mmdb from the archive
+	//     4. Place it at data/GeoLite2-Country.mmdb (or set this path)
+	GeoIPDBPath string `json:"geoip_db_path"`
+
+	// MaxMindLicenseKey: your free MaxMind GeoLite2 license key.
+	// When set the app downloads and refreshes the database automatically.
+	// Get your key at: https://www.maxmind.com/en/geolite2/signup
+	MaxMindLicenseKey string `json:"maxmind_license_key"`
+
+	// GeoIPUpdateDays: how often (days) to refresh the GeoIP database. Default 7.
+	GeoIPUpdateDays int `json:"geoip_update_days"`
 }
 
 // EmailConfig holds SMTP settings for outbound email.
@@ -118,6 +170,17 @@ func defaults(dataDir string) Config {
 		ReverseProxies:   []string{},
 		DatabaseURL:      "file:" + filepath.Join(dataDir, "app.db") + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)",
 		AllowRegistration: false,
+		Security: SecurityConfig{
+			Enabled:              false,
+			AutoBanEnabled:       true,
+			AutoBanThreshold:     5,
+			AutoBanWindowMinutes: 60,
+			AutoBanDurationHours: 24,
+			GeoIPEnabled:         false,
+			GeoIPDBPath:          "",
+			MaxMindLicenseKey:    "",
+			GeoIPUpdateDays:      7,
+		},
 		Email: EmailConfig{
 			Enabled:     false,
 			SMTPHost:    "smtp.example.com",

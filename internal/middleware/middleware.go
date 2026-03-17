@@ -117,6 +117,7 @@ func DomainGuard(cfg *config.Config) func(http.Handler) http.Handler {
 
 func Logger(appLogger *logger.Logger, cfg *config.Config) func(http.Handler) http.Handler {
 	trustedProxies := parseCIDRs(cfg.ReverseProxies)
+	cachedTrustedProxies = trustedProxies // cache for RealIPFromRequest
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -256,6 +257,17 @@ func Chain(h http.Handler, mw ...func(http.Handler) http.Handler) http.Handler {
 // ─────────────────────────────────────────────────────────────────────────────
 // Real-IP extraction
 // ─────────────────────────────────────────────────────────────────────────────
+
+// RealIPFromRequest is the exported version used by handlers that need the
+// client IP (e.g. the login handler for ban tracking). It reads the cached
+// proxy list stored by the Logger middleware initialisation.
+// Falls back to RemoteAddr if called before Logger is initialised.
+var cachedTrustedProxies []*net.IPNet
+
+// RealIPFromRequest returns the real client IP, handling reverse proxies.
+func RealIPFromRequest(r *http.Request) string {
+	return realIP(r, cachedTrustedProxies)
+}
 
 func realIP(r *http.Request, trustedProxies []*net.IPNet) string {
 	remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)

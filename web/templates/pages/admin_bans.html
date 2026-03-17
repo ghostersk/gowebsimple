@@ -1,0 +1,131 @@
+{{template "base" .}}
+{{define "title"}}IP Bans — Admin{{end}}
+{{define "content"}}
+<div class="max-w-6xl mx-auto">
+    <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div>
+            <h2 class="text-xl font-semibold text-white">IP Bans</h2>
+            <p class="text-gray-500 text-sm mt-0.5">{{.Total}} {{if .ShowAll}}total{{else}}active{{end}} {{if eq .Total 1}}ban{{else}}bans{{end}}</p>
+        </div>
+        <div class="flex gap-2">
+            {{if .ShowAll}}
+            <a href="/admin/security/bans" class="btn-ghost text-sm">Active only</a>
+            {{else}}
+            <a href="/admin/security/bans?all=1" class="btn-ghost text-sm">Show history</a>
+            {{end}}
+            <button onclick="document.getElementById('ban-modal').classList.remove('hidden')" class="btn-primary text-sm">+ Ban IP</button>
+        </div>
+    </div>
+
+    <div class="rounded-xl border border-surface-600 bg-surface-800 overflow-hidden mb-6">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-surface-700 bg-surface-700/50">
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono">IP Address</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono hidden md:table-cell">Reason</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono">Expires</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono hidden lg:table-cell">Created</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono">Status</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-surface-700">
+                    {{range .Bans}}
+                    <tr class="hover:bg-surface-700/30 transition-colors {{if not .Active}}opacity-50{{end}}">
+                        <td class="px-4 py-3 font-mono text-accent text-sm">{{.IPAddress}}</td>
+                        <td class="px-4 py-3 text-gray-400 text-xs max-w-xs truncate hidden md:table-cell">{{.Reason}}</td>
+                        <td class="px-4 py-3 font-mono text-xs">
+                            {{if .Permanent}}<span class="badge badge-inactive">Permanent</span>
+                            {{else if .ExpiresAt}}<span class="text-gray-400">{{.ExpiresAt.Format "2006-01-02 15:04"}}</span>
+                            {{else}}—{{end}}
+                        </td>
+                        <td class="px-4 py-3 text-gray-500 font-mono text-xs hidden lg:table-cell">
+                            {{.CreatedAt.Format "2006-01-02 15:04"}} by {{.CreatedBy}}
+                        </td>
+                        <td class="px-4 py-3">
+                            {{if .UnbannedAt}}<span class="badge badge-active">Removed</span>
+                            {{else if .Active}}<span class="badge badge-inactive">Active</span>
+                            {{else}}<span class="badge badge-user">Expired</span>{{end}}
+                        </td>
+                        <td class="px-4 py-3">
+                            {{if .Active}}
+                            <div class="flex gap-1.5 flex-wrap">
+                                <form method="POST" action="/admin/security/bans/action" class="inline">
+                                    <input type="hidden" name="action" value="unban">
+                                    <input type="hidden" name="ban_id" value="{{.ID}}">
+                                    <button type="submit" class="text-xs px-2 py-1 rounded border font-mono border-success/30 text-success hover:bg-success/10 transition-colors">Unban</button>
+                                </form>
+                                <form method="POST" action="/admin/security/bans/action" class="inline">
+                                    <input type="hidden" name="action" value="extend">
+                                    <input type="hidden" name="ban_id" value="{{.ID}}">
+                                    <input type="hidden" name="add_hours" value="24">
+                                    <button type="submit" class="text-xs px-2 py-1 rounded border font-mono border-accent/30 text-accent hover:bg-accent/10 transition-colors">+24h</button>
+                                </form>
+                                {{if not .Permanent}}
+                                <form method="POST" action="/admin/security/bans/action" class="inline">
+                                    <input type="hidden" name="action" value="permanent">
+                                    <input type="hidden" name="ban_id" value="{{.ID}}">
+                                    <button type="submit" class="text-xs px-2 py-1 rounded border font-mono border-danger/30 text-danger hover:bg-danger/10 transition-colors">Perm</button>
+                                </form>
+                                {{end}}
+                            </div>
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr><td colspan="6" class="px-4 py-12 text-center text-gray-600 font-mono text-sm">No bans found</td></tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {{if gt .TotalPages 1}}
+    <div class="flex items-center justify-between">
+        <p class="text-xs text-gray-500 font-mono">Page {{.Page}} of {{.TotalPages}}</p>
+        <div class="flex gap-2">
+            {{if gt .Page 1}}<a href="?page={{dec .Page}}{{if .ShowAll}}&all=1{{end}}" class="btn-ghost text-xs px-3 py-1.5">← Prev</a>{{end}}
+            {{if lt .Page .TotalPages}}<a href="?page={{inc .Page}}{{if .ShowAll}}&all=1{{end}}" class="btn-ghost text-xs px-3 py-1.5">Next →</a>{{end}}
+        </div>
+    </div>
+    {{end}}
+</div>
+
+<!-- Ban Modal -->
+<div id="ban-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div class="bg-surface-800 border border-surface-600 rounded-2xl shadow-[0_2px_40px_rgba(0,0,0,0.5)] w-full max-w-md">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-surface-700">
+            <h3 class="font-semibold text-white">Ban an IP Address</h3>
+            <button onclick="document.getElementById('ban-modal').classList.add('hidden')" class="text-gray-500 hover:text-gray-300">✕</button>
+        </div>
+        <form method="POST" action="/admin/security/bans/action" class="p-6 space-y-4">
+            <input type="hidden" name="action" value="ban">
+            <div><label class="field-label">IP Address</label>
+                <input type="text" name="ip" class="input-field font-mono" placeholder="192.168.1.1" required></div>
+            <div><label class="field-label">Reason</label>
+                <input type="text" name="reason" class="input-field" placeholder="Manual ban by admin"></div>
+            <div>
+                <label class="field-label">Duration (hours)</label>
+                <input type="number" name="duration_hours" class="input-field" placeholder="24" min="1" value="24">
+                <p class="text-xs text-gray-600 mt-1">Leave blank or 0 for permanent.</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <input type="checkbox" name="permanent" value="1" id="perm-check" class="rounded">
+                <label for="perm-check" class="text-sm text-gray-400">Permanent ban</label>
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button type="submit" class="btn-primary flex-1 justify-center">Ban IP</button>
+                <button type="button" onclick="document.getElementById('ban-modal').classList.add('hidden')" class="btn-ghost flex-1 justify-center">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}
+{{define "scripts"}}
+<script>
+document.addEventListener('click', function(e) {
+    if (e.target.id === 'ban-modal') e.target.classList.add('hidden');
+});
+</script>
+{{end}}

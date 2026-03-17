@@ -167,6 +167,11 @@ func (d *DB) migrate() error {
 		}
 	}
 
+	// Run security schema migrations
+	if err := migrateSecurity(d); err != nil {
+		return err
+	}
+
 	// Cleanup stale data on startup.
 	_, _ = d.Exec(`DELETE FROM sessions WHERE expires_at < ?`, TimeStr(time.Now()))
 	_, _ = d.Exec(`DELETE FROM app_logs WHERE created_at < ?`,
@@ -185,3 +190,11 @@ func TimeStr(t time.Time) string {
 func NullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
 }
+
+// migrateSecurity is called by migrate() to create security tables.
+// It is defined as a variable so the security package can set it,
+// avoiding an import cycle (db → security would be circular).
+var migrateSecurity = func(d *DB) error { return nil }
+
+// SetSecurityMigrator allows the security package to register its migration.
+func SetSecurityMigrator(fn func(*DB) error) { migrateSecurity = fn }

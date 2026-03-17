@@ -14,28 +14,29 @@ import (
 	"goapp/internal/db"
 	"goapp/internal/logger"
 	"goapp/internal/router"
+	"goapp/internal/security"
 )
 
 func main() {
-	// ── Flags ─────────────────────────────────────────────────────────────────
-	dataDir   := flag.String("data",     envOr("DATA_DIR", "./data"), "Config/database directory")
-	mfaOff    := flag.String("mfaoff",   "",                          "Disable MFA for admin username")
-	pwReset   := flag.String("pwreset",  "",                          "Reset password: -pwreset <username> \"<password>\"")
-	newPwd    := flag.String("newpwd",   "",                          "New password for -pwreset")
+	dataDir  := flag.String("data",    envOr("DATA_DIR", "./data"), "Config/database directory")
+	mfaOff   := flag.String("mfaoff",  "",                          "Disable MFA for admin username")
+	pwReset  := flag.String("pwreset", "",                          "Reset password: -pwreset <username>")
+	newPwd   := flag.String("newpwd",  "",                          "New password for -pwreset")
 	flag.Parse()
 
-	// ── Config ────────────────────────────────────────────────────────────────
 	cfg, err := config.Load(*dataDir)
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
-
-	// Override debug from env if set explicitly
 	if os.Getenv("DEBUG") == "1" {
 		cfg.Debug = true
 	}
 
 	// ── Database ───────────────────────────────────────────────────────────────
+	// Register security schema migrator before opening DB
+	db.SetSecurityMigrator(func(d *db.DB) error {
+		return security.Migrate(d)
+	})
 	database, err := db.Open(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("database: %v", err)
@@ -44,15 +45,15 @@ func main() {
 
 	// ── Logger ─────────────────────────────────────────────────────────────────
 	appLog := logger.New(database, cfg.Debug)
+	appLog.Info("server starting", "addr", cfg.Addr(), "debug", cfg.Debug, "driver", database.Driver())
 
-	// ── CLI admin operations (run and exit) ────────────────────────────────────
+	// ── CLI admin operations ───────────────────────────────────────────────────
 	if *mfaOff != "" {
 		runMFAOff(database, *mfaOff)
 		return
 	}
 	if *pwReset != "" {
 		if *newPwd == "" {
-			// Check for positional arg after -pwreset
 			args := flag.Args()
 			if len(args) > 0 {
 				*newPwd = args[0]
@@ -66,20 +67,60 @@ func main() {
 		return
 	}
 
-	// ── Normal server startup ──────────────────────────────────────────────────
-	appLog.Info("server starting", "addr", cfg.Addr(), "debug", cfg.Debug,
-		"driver", database.Driver(), "domain", cfg.WebDomain)
-
-	// Seed default admin on first run
+	// ── Seed admin ─────────────────────────────────────────────────────────────
 	seedAdmin(database, appLog)
 
-	// Background jobs
+	// ── Security engine ────────────────────────────────────────────────────────
+	var (
+		secEngine *security.Engine
+		geoip     *security.GeoIPDB
+	)
+
+	if cfg.Security.Enabled {
+		// GeoIP database path
+		geoipPath := cfg.Security.GeoIPDBPath
+		if geoipPath == "" {
+			geoipPath = filepath.Join(*dataDir, "GeoLite2-Country.mmdb")
+		}
+
+		geoip = security.NewGeoIPDB(geoipPath)
+
+		if cfg.Security.GeoIPEnabled {
+			// Try to load existing database
+			if err := geoip.Load(); err != nil {
+				appLog.Warn("geoip: initial load failed (will retry on download)", "err", err)
+			} else {
+				appLog.Info("geoip: database loaded", "path", geoipPath)
+			}
+			// Start auto-updater if license key is set
+			updateInterval := time.Duration(cfg.Security.GeoIPUpdateDays) * 24 * time.Hour
+			if updateInterval == 0 {
+				updateInterval = 7 * 24 * time.Hour
+			}
+			security.StartAutoUpdater(geoip, cfg.Security.MaxMindLicenseKey, geoipPath, updateInterval, appLog.Info)
+		}
+
+		eng, err := security.NewEngine(database, &cfg.Security, geoip, cfg.ReverseProxies)
+		if err != nil {
+			log.Fatalf("security engine: %v", err)
+		}
+		secEngine = eng
+		appLog.Info("security: engine started",
+			"auto_ban", cfg.Security.AutoBanEnabled,
+			"geoip", cfg.Security.GeoIPEnabled,
+			"threshold", cfg.Security.AutoBanThreshold)
+	} else {
+		appLog.Info("security: disabled (set security.enabled=true in config.json to activate)")
+	}
+
+	// ── Background jobs ────────────────────────────────────────────────────────
 	logger.PruneJob(appLog, cfg.LogRetentionDays)
+	auth.InitCSRF([]byte(cfg.CSRFKey))
 
 	go func() {
-		ticker := time.NewTicker(time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for range t.C {
 			n, err := database.PruneExpiredSessions()
 			if err != nil {
 				appLog.Error("session prune", "err", err)
@@ -89,19 +130,12 @@ func main() {
 		}
 	}()
 
-	// Initialise CSRF key from config
-	auth.InitCSRF([]byte(cfg.CSRFKey))
-
-	// ── Paths ──────────────────────────────────────────────────────────────────
-	cwd, err := os.Getwd()
-	if err != nil {
-		log.Fatalf("cannot determine working directory: %v", err)
-	}
-	staticDir   := filepath.Join(cwd, "web", "static")
+	// ── Build router ───────────────────────────────────────────────────────────
+	cwd, _ := os.Getwd()
+	staticDir := filepath.Join(cwd, "web", "static")
 	templateDir := filepath.Join(cwd, "web", "templates")
 
-	// ── Router ─────────────────────────────────────────────────────────────────
-	handler, err := router.New(staticDir, templateDir, database, appLog, cfg)
+	handler, err := router.New(staticDir, templateDir, database, appLog, cfg, secEngine, geoip)
 	if err != nil {
 		log.Fatalf("router: %v", err)
 	}
@@ -114,14 +148,12 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
-
 	appLog.Info("server ready", "addr", srv.Addr)
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("server: %v", err)
 	}
 }
 
-// seedAdmin creates the default admin on first run.
 func seedAdmin(database *db.DB, appLog *logger.Logger) {
 	count, _ := database.CountUsers()
 	if count > 0 {
@@ -141,7 +173,6 @@ func seedAdmin(database *db.DB, appLog *logger.Logger) {
 		"username", user.Username, "password", "Admin1234!")
 }
 
-// runMFAOff disables MFA for a named admin account (emergency CLI op).
 func runMFAOff(database *db.DB, username string) {
 	user, err := database.UserByUsername(username)
 	if err != nil {
@@ -159,7 +190,6 @@ func runMFAOff(database *db.DB, username string) {
 	fmt.Printf("✓ MFA disabled for admin %q\n", username)
 }
 
-// runPwReset resets the password for a named admin account (emergency CLI op).
 func runPwReset(database *db.DB, username, password string) {
 	user, err := database.UserByUsername(username)
 	if err != nil {
@@ -167,7 +197,7 @@ func runPwReset(database *db.DB, username, password string) {
 		os.Exit(1)
 	}
 	if !user.IsAdmin() {
-		fmt.Fprintf(os.Stderr, "pwreset: user %q is not an admin — flag only works for admins\n", username)
+		fmt.Fprintf(os.Stderr, "pwreset: user %q is not an admin\n", username)
 		os.Exit(1)
 	}
 	if len(password) < 8 {
@@ -176,14 +206,13 @@ func runPwReset(database *db.DB, username, password string) {
 	}
 	hash, err := auth.HashPassword(password)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "pwreset: hash failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "pwreset: %v\n", err)
 		os.Exit(1)
 	}
 	if err := database.UpdateUserPassword(user.ID, hash); err != nil {
 		fmt.Fprintf(os.Stderr, "pwreset: %v\n", err)
 		os.Exit(1)
 	}
-	// Invalidate all sessions for security
 	_ = database.DeleteUserSessions(user.ID)
 	fmt.Printf("✓ Password reset for admin %q — all sessions invalidated\n", username)
 }

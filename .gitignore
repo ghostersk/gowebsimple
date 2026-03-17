@@ -4,6 +4,8 @@ data/*.db-shm
 data/*db-wal
 data/gowebmail.conf
 data/*.txt
+*.json
+*.mmdb
 testrun/
 *.code-workspace
 test*/**

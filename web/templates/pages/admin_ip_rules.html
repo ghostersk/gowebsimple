@@ -1,0 +1,122 @@
+{{template "base" .}}
+{{define "title"}}IP Rules — Admin{{end}}
+{{define "content"}}
+<div class="max-w-5xl mx-auto">
+    <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div>
+            <h2 class="text-xl font-semibold text-white">IP Rules</h2>
+            <p class="text-gray-500 text-sm mt-0.5">Whitelist, blacklist, and global allow-only rules</p>
+        </div>
+        <button onclick="document.getElementById('rule-modal').classList.remove('hidden')" class="btn-primary text-sm">+ Add Rule</button>
+    </div>
+
+    <!-- Legend -->
+    <div class="grid sm:grid-cols-3 gap-3 mb-6">
+        <div class="rounded-lg border border-surface-600 bg-surface-800/50 p-4">
+            <p class="text-xs font-semibold text-accent font-mono uppercase tracking-widest mb-1">Whitelist</p>
+            <p class="text-xs text-gray-500">Always allow — overrides bans and blacklist. Use for your office IP, admin VPN, etc.</p>
+        </div>
+        <div class="rounded-lg border border-surface-600 bg-surface-800/50 p-4">
+            <p class="text-xs font-semibold text-danger font-mono uppercase tracking-widest mb-1">Blacklist</p>
+            <p class="text-xs text-gray-500">Always block this IP/CIDR on the specified path. Never auto-expires.</p>
+        </div>
+        <div class="rounded-lg border border-surface-600 bg-surface-800/50 p-4">
+            <p class="text-xs font-semibold text-warning font-mono uppercase tracking-widest mb-1">Global Allow</p>
+            <p class="text-xs text-gray-500">Block everyone <em>except</em> IPs in this list on the specified path. Use sparingly.</p>
+        </div>
+    </div>
+
+    <div class="rounded-xl border border-surface-600 bg-surface-800 overflow-hidden mb-6">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-surface-700 bg-surface-700/50">
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono">IP / CIDR</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono">Type</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono">Path</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono hidden md:table-cell">Note</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-surface-700">
+                    {{range .Rules}}
+                    <tr class="hover:bg-surface-700/30 transition-colors">
+                        <td class="px-4 py-3 font-mono text-sm text-gray-200">{{.CIDR}}</td>
+                        <td class="px-4 py-3">
+                            {{if eq (print .Type) "whitelist"}}<span class="badge badge-active">whitelist</span>
+                            {{else if eq (print .Type) "blacklist"}}<span class="badge badge-inactive">blacklist</span>
+                            {{else}}<span class="badge" style="color:#f59e0b;background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.25)">globalallow</span>{{end}}
+                        </td>
+                        <td class="px-4 py-3 font-mono text-xs text-accent">{{.PathPattern}} <span class="text-gray-600">({{.PathType}})</span></td>
+                        <td class="px-4 py-3 text-gray-500 text-xs hidden md:table-cell">{{.Note}}</td>
+                        <td class="px-4 py-3">
+                            <form method="POST" action="/admin/security/rules" class="inline"
+                                  onsubmit="return confirm('Delete this rule?')">
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="rule_id" value="{{.ID}}">
+                                <button type="submit" class="text-xs px-2 py-1 rounded border font-mono border-danger/30 text-danger hover:bg-danger/10 transition-colors">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr><td colspan="5" class="px-4 py-12 text-center text-gray-600 font-mono text-sm">No IP rules configured</td></tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="rounded-xl border border-surface-600 bg-surface-800/50 p-5 text-sm text-gray-400">
+        <p class="font-semibold text-gray-300 mb-2">Path pattern examples</p>
+        <ul class="space-y-1 text-xs font-mono">
+            <li><span class="text-accent">*</span> — matches all paths (default)</li>
+            <li><span class="text-accent">/admin*</span> — prefix: matches /admin, /admin/users, /admin/logs</li>
+            <li><span class="text-accent">/login</span> — exact: only /login</li>
+            <li><span class="text-accent">/api/*</span> — wildcard: /api/v1, /api/v2/anything</li>
+        </ul>
+    </div>
+</div>
+
+<!-- Add Rule Modal -->
+<div id="rule-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div class="bg-surface-800 border border-surface-600 rounded-2xl shadow-[0_2px_40px_rgba(0,0,0,0.5)] w-full max-w-lg">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-surface-700">
+            <h3 class="font-semibold text-white">Add IP Rule</h3>
+            <button onclick="document.getElementById('rule-modal').classList.add('hidden')" class="text-gray-500 hover:text-gray-300">✕</button>
+        </div>
+        <form method="POST" action="/admin/security/rules" class="p-6 space-y-4">
+            <div><label class="field-label">IP Address or CIDR</label>
+                <input type="text" name="cidr" class="input-field font-mono" placeholder="192.168.1.0/24 or 10.0.0.5" required></div>
+            <div><label class="field-label">Rule Type</label>
+                <select name="type" class="input-field">
+                    <option value="whitelist">Whitelist — always allow</option>
+                    <option value="blacklist">Blacklist — always block</option>
+                    <option value="globalallow">Global Allow — block all others</option>
+                </select></div>
+            <div class="grid grid-cols-2 gap-3">
+                <div><label class="field-label">Path Pattern</label>
+                    <input type="text" name="path_pattern" class="input-field font-mono" placeholder="*" value="*"></div>
+                <div><label class="field-label">Match Type</label>
+                    <select name="path_type" class="input-field">
+                        <option value="wildcard">Wildcard (* glob)</option>
+                        <option value="prefix">Prefix</option>
+                        <option value="exact">Exact</option>
+                    </select></div>
+            </div>
+            <div><label class="field-label">Note (optional)</label>
+                <input type="text" name="note" class="input-field" placeholder="e.g. Office network"></div>
+            <div class="flex gap-3 pt-2">
+                <button type="submit" class="btn-primary flex-1 justify-center">Add Rule</button>
+                <button type="button" onclick="document.getElementById('rule-modal').classList.add('hidden')" class="btn-ghost flex-1 justify-center">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}
+{{define "scripts"}}
+<script>
+document.addEventListener('click', function(e) {
+    if (e.target.id === 'rule-modal') e.target.classList.add('hidden');
+});
+</script>
+{{end}}

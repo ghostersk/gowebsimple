@@ -12,9 +12,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"goapp/internal/db"
 	"goapp/internal/middleware"
+	"goapp/internal/security"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -215,6 +217,18 @@ func buildFuncMap() template.FuncMap {
 			for i := range s { s[i] = i + 1 }
 			return s
 		},
+		// banExpiry formats the remaining time on a ban for display in templates.
+		// Usage: {{banExpiry .}}  where . is *security.IPBan
+		"banExpiry": func(b *security.IPBan) string {
+			if b == nil { return "—" }
+			if b.Permanent { return "Permanent" }
+			if b.ExpiresAt == nil { return "—" }
+			if time.Now().After(*b.ExpiresAt) { return "Expired" }
+			d := time.Until(*b.ExpiresAt)
+			if d < time.Hour { return fmt.Sprintf("%dm", int(d.Minutes())) }
+			if d < 24*time.Hour { return fmt.Sprintf("%dh", int(d.Hours())) }
+			return fmt.Sprintf("%dd", int(d.Hours()/24))
+		},
 		"levelClass": func(level string) string {
 			switch level {
 			case "ERROR": return "level-error"
@@ -250,8 +264,12 @@ var DefaultNav = []NavItem{
 	{Label: "Dashboard", Href: "/dashboard", Icon: "home"},
 	{Label: "About",     Href: "/about",     Icon: "info"},
 	{Label: "Contact",   Href: "/contact",   Icon: "mail"},
-	{Label: "Users",     Href: "/admin/users", Icon: "users",    AdminOnly: true},
-	{Label: "Logs",      Href: "/admin/logs",  Icon: "activity", AdminOnly: true},
+	{Label: "Users",     Href: "/admin/users",             Icon: "users",    AdminOnly: true},
+	{Label: "Logs",      Href: "/admin/logs",              Icon: "activity", AdminOnly: true},
+	{Label: "Bans",      Href: "/admin/security/bans",     Icon: "shield",   AdminOnly: true},
+	{Label: "IP Rules",  Href: "/admin/security/rules",    Icon: "key",      AdminOnly: true},
+	{Label: "Countries", Href: "/admin/security/countries", Icon: "globe",   AdminOnly: true},
+	{Label: "Attempts",  Href: "/admin/security/attempts", Icon: "warning",  AdminOnly: true},
 }
 
 // PublicNav is the top-bar navigation shown in the public layout.
@@ -325,6 +343,8 @@ func navIconSVG(name string) template.HTML {
 		"logout":   `<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>`,
 		"shield":   `<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>`,
 		"key":      `<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>`,
+		"globe":    `<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 004 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`,
+		"warning":  `<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>`,
 		"mfa":      `<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>`,
 	}
 	if svg, ok := icons[name]; ok {

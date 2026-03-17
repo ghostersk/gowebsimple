@@ -1,0 +1,138 @@
+{{template "base" .}}
+{{define "title"}}Country Rules — Admin{{end}}
+{{define "content"}}
+<div class="max-w-5xl mx-auto">
+    <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div>
+            <h2 class="text-xl font-semibold text-white">Country Rules</h2>
+            <p class="text-gray-500 text-sm mt-0.5">Block or allow traffic by country (requires GeoIP database)</p>
+        </div>
+        {{if .GeoIPLoaded}}
+        <button onclick="document.getElementById('country-modal').classList.remove('hidden')" class="btn-primary text-sm">+ Add Rule</button>
+        {{else}}
+        <span class="badge badge-inactive text-xs font-mono px-3 py-1.5">GeoIP not loaded</span>
+        {{end}}
+    </div>
+
+    {{if not .GeoIPLoaded}}
+    <div class="rounded-xl border border-warning/20 bg-warning/5 p-5 mb-6">
+        <p class="text-sm font-semibold text-warning mb-2">GeoIP database not loaded</p>
+        <p class="text-sm text-gray-400 leading-relaxed">
+            Country rules require a MaxMind GeoLite2-Country database.<br>
+            1. Register free at <a href="https://www.maxmind.com/en/geolite2/signup" class="text-accent hover:underline" target="_blank">maxmind.com</a><br>
+            2. Set <code class="font-mono text-xs bg-surface-700 px-1 rounded">security.maxmind_license_key</code> in <code class="font-mono text-xs bg-surface-700 px-1 rounded">data/config.json</code><br>
+            3. Set <code class="font-mono text-xs bg-surface-700 px-1 rounded">security.geoip_enabled: true</code> and restart — the database downloads automatically.
+        </p>
+    </div>
+    {{end}}
+
+    <div class="rounded-xl border border-surface-600 bg-surface-800 overflow-hidden mb-6">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-surface-700 bg-surface-700/50">
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono">Country</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono">Action</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono">Path</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono hidden md:table-cell">Note</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest font-mono">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-surface-700">
+                    {{range .Rules}}
+                    <tr class="hover:bg-surface-700/30 transition-colors">
+                        <td class="px-4 py-3 font-mono">
+                            <span class="text-accent font-semibold">{{.CountryCode}}</span>
+                            {{if .CountryName}}<span class="text-gray-400 text-xs ml-2">{{.CountryName}}</span>{{end}}
+                        </td>
+                        <td class="px-4 py-3">
+                            {{if eq (print .Action) "block"}}<span class="badge badge-inactive">block</span>
+                            {{else}}<span class="badge badge-active">allow</span>{{end}}
+                        </td>
+                        <td class="px-4 py-3 font-mono text-xs text-accent">{{.PathPattern}} <span class="text-gray-600">({{.PathType}})</span></td>
+                        <td class="px-4 py-3 text-gray-500 text-xs hidden md:table-cell">{{.Note}}</td>
+                        <td class="px-4 py-3">
+                            <form method="POST" action="/admin/security/countries" class="inline"
+                                  onsubmit="return confirm('Delete this rule?')">
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="rule_id" value="{{.ID}}">
+                                <button type="submit" class="text-xs px-2 py-1 rounded border font-mono border-danger/30 text-danger hover:bg-danger/10 transition-colors">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr><td colspan="5" class="px-4 py-12 text-center text-gray-600 font-mono text-sm">No country rules configured</td></tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Add Country Rule Modal -->
+<div id="country-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div class="bg-surface-800 border border-surface-600 rounded-2xl shadow-[0_2px_40px_rgba(0,0,0,0.5)] w-full max-w-lg">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-surface-700">
+            <h3 class="font-semibold text-white">Add Country Rule</h3>
+            <button onclick="document.getElementById('country-modal').classList.add('hidden')" class="text-gray-500 hover:text-gray-300">✕</button>
+        </div>
+        <form method="POST" action="/admin/security/countries" class="p-6 space-y-4">
+            <div class="grid grid-cols-2 gap-3">
+                <div><label class="field-label">Country</label>
+                    <select name="country_code" id="country-select" class="input-field" onchange="syncCountryName(this)">
+                        {{range .Countries}}
+                        <option value="{{.Code}}" data-name="{{.Name}}">{{.Code}} — {{.Name}}</option>
+                        {{end}}
+                    </select></div>
+                <div><label class="field-label">Or enter code manually</label>
+                    <input type="text" name="country_code_manual" id="country-manual" class="input-field font-mono uppercase" placeholder="US" maxlength="2"
+                           oninput="document.getElementById('country-select').value=''">
+                </div>
+            </div>
+            <input type="hidden" name="country_name" id="country-name">
+            <div><label class="field-label">Action</label>
+                <select name="action_type" class="input-field">
+                    <option value="block">Block — deny access from this country</option>
+                    <option value="allow">Allow — explicitly permit (useful with block-default)</option>
+                </select></div>
+            <div class="grid grid-cols-2 gap-3">
+                <div><label class="field-label">Path Pattern</label>
+                    <input type="text" name="path_pattern" class="input-field font-mono" placeholder="*" value="*"></div>
+                <div><label class="field-label">Match Type</label>
+                    <select name="path_type" class="input-field">
+                        <option value="wildcard">Wildcard</option>
+                        <option value="prefix">Prefix</option>
+                        <option value="exact">Exact</option>
+                    </select></div>
+            </div>
+            <div><label class="field-label">Note (optional)</label>
+                <input type="text" name="note" class="input-field" placeholder="e.g. Block high-risk region"></div>
+            <div class="flex gap-3 pt-2">
+                <button type="submit" class="btn-primary flex-1 justify-center">Add Rule</button>
+                <button type="button" onclick="document.getElementById('country-modal').classList.add('hidden')" class="btn-ghost flex-1 justify-center">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}
+{{define "scripts"}}
+<script>
+function syncCountryName(sel) {
+    var opt = sel.options[sel.selectedIndex];
+    document.getElementById('country-name').value = opt.getAttribute('data-name') || '';
+    document.getElementById('country-manual').value = '';
+}
+document.getElementById('country-select') && syncCountryName(document.getElementById('country-select'));
+document.addEventListener('submit', function(e) {
+    var manual = document.getElementById('country-manual');
+    var sel = document.getElementById('country-select');
+    if (manual && manual.value.trim()) {
+        sel.name = ''; // disable select so manual takes priority
+        manual.name = 'country_code';
+    }
+});
+document.addEventListener('click', function(e) {
+    if (e.target.id === 'country-modal') e.target.classList.add('hidden');
+});
+</script>
+{{end}}

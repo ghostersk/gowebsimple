@@ -8,6 +8,7 @@ import (
 	"goapp/internal/db"
 	"goapp/internal/logger"
 	"goapp/internal/middleware"
+	"goapp/internal/security"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -21,16 +22,17 @@ type LoginData struct {
 }
 
 type LoginHandler struct {
-	tmpl    *Renderer
-	db      *db.DB
-	log     *logger.Logger
-	limiter *auth.RateLimiter
-	pending *PendingMFAStore
+	tmpl     *Renderer
+	db       *db.DB
+	log      *logger.Logger
+	limiter  *auth.RateLimiter
+	pending  *PendingMFAStore
+	banner   *security.AutoBanner // nil when security is disabled
 }
 
 func NewLoginHandler(r *Renderer, database *db.DB, l *logger.Logger,
-	limiter *auth.RateLimiter, pending *PendingMFAStore) *LoginHandler {
-	return &LoginHandler{tmpl: r, db: database, log: l, limiter: limiter, pending: pending}
+	limiter *auth.RateLimiter, pending *PendingMFAStore, banner *security.AutoBanner) *LoginHandler {
+	return &LoginHandler{tmpl: r, db: database, log: l, limiter: limiter, pending: pending, banner: banner}
 }
 
 func (h *LoginHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -80,21 +82,26 @@ func (h *LoginHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve real client IP for ban tracking
+	clientIP := middleware.RealIPFromRequest(r)
+
 	user, err := h.db.UserByUsername(username)
 	if err != nil {
-		h.log.Warn("login failed: user not found", "username", username, "ip", r.RemoteAddr)
+		h.log.Warn("login failed: user not found", "username", username, "ip", clientIP)
+		h.recordFailedAttempt(w, r, clientIP, username)
 		h.showForm(w, r, username, "Invalid username or password.")
 		return
 	}
 
 	if !auth.CheckPassword(password, user.Password) {
-		h.log.Warn("login failed: wrong password", "username", username, "ip", r.RemoteAddr)
+		h.log.Warn("login failed: wrong password", "username", username, "ip", clientIP)
+		h.recordFailedAttempt(w, r, clientIP, username)
 		h.showForm(w, r, username, "Invalid username or password.")
 		return
 	}
 
 	if !user.Active {
-		h.log.Warn("login failed: account disabled", "username", username, "ip", r.RemoteAddr)
+		h.log.Warn("login failed: account disabled", "username", username, "ip", clientIP)
 		h.showForm(w, r, username, "Your account has been disabled. Contact an administrator.")
 		return
 	}
@@ -117,7 +124,7 @@ func (h *LoginHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = h.db.UpdateLastLogin(user.ID)
-	h.log.Info("login success", "username", user.Username, "ip", r.RemoteAddr, "role", user.Role)
+	h.log.Info("login success", "username", user.Username, "ip", clientIP, "role", user.Role)
 
 	middleware.SetSessionCookie(w, sess.Token, sess.ExpiresAt)
 	if next == "" || !strings.HasPrefix(next, "/") {
@@ -336,4 +343,15 @@ func (h *ProfileHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	_ = h.db.DeleteUserSessions(user.ID)
 	http.SetCookie(w, &http.Cookie{Name: "session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
 	http.Redirect(w, r, "/login?msg=Password+changed.+Please+sign+in+again.", http.StatusSeeOther)
+}
+
+// recordFailedAttempt records the failed login and auto-bans if threshold crossed.
+func (h *LoginHandler) recordFailedAttempt(w http.ResponseWriter, r *http.Request, ip, username string) {
+	if h.banner == nil {
+		return
+	}
+	banned, _ := h.banner.RecordFailedLogin(ip, username)
+	if banned {
+		h.log.Warn("auto-ban triggered", "ip", ip, "username", username)
+	}
 }
